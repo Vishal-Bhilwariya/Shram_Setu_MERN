@@ -1,48 +1,160 @@
+/**
+ * Admin Controller — Shram Setu
+ * 
+ * Handles: getAllUsers, blockUser, deleteJob, getAnalytics
+ * All endpoints require admin role authorization.
+ */
+
 const User = require('../models/User');
 const Job = require('../models/Job');
 const Review = require('../models/Review');
+const Application = require('../models/Application');
+const { sendSuccess } = require('../utils/responseHelper');
+const AppError = require('../utils/AppError');
 
-exports.getAllUsers = async (req, res) => {
+// ─────────────────────────────────────────────────────────────
+// GET /api/v1/admin/users — Get all users (paginated)
+// Query: ?page=1&limit=10&role=worker&search=john
+// ─────────────────────────────────────────────────────────────
+exports.getAllUsers = async (req, res, next) => {
   try {
-    const users = await User.find().select('-password');
-    res.json(users);
+    const { page = 1, limit = 10, role, search } = req.query;
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    const filter = {};
+    if (role) filter.role = role;
+    if (search) {
+      filter.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum),
+      User.countDocuments(filter),
+    ]);
+
+    sendSuccess(res, 200, 'Users fetched', { users }, {
+      currentPage: pageNum,
+      totalPages: Math.ceil(total / limitNum),
+      totalItems: total,
+      limit: limitNum,
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
-exports.blockUser = async (req, res) => {
+// ─────────────────────────────────────────────────────────────
+// PATCH /api/v1/admin/users/:id/block — Toggle block/unblock user
+// ─────────────────────────────────────────────────────────────
+exports.blockUser = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return next(new AppError('User not found.', 404));
     }
+
+    if (user.role === 'admin') {
+      return next(new AppError('Cannot block an admin.', 400));
+    }
+
     user.isBlocked = !user.isBlocked;
-    await user.save();
-    res.json({ message: `User ${user.isBlocked ? 'blocked' : 'unblocked'}` });
+    await user.save({ validateBeforeSave: false });
+
+    sendSuccess(res, 200, `User ${user.isBlocked ? 'blocked' : 'unblocked'} successfully`, {
+      userId: user._id,
+      isBlocked: user.isBlocked,
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
-exports.getAnalytics = async (req, res) => {
+// ─────────────────────────────────────────────────────────────
+// DELETE /api/v1/admin/jobs/:id — Delete any job (Admin)
+// ─────────────────────────────────────────────────────────────
+exports.deleteJob = async (req, res, next) => {
   try {
-    const totalUsers = await User.countDocuments();
-    const totalWorkers = await User.countDocuments({ role: 'worker' });
-    const totalHirers = await User.countDocuments({ role: 'hirer' });
-    const totalJobs = await Job.countDocuments();
-    const openJobs = await Job.countDocuments({ status: 'open' });
-    const totalReviews = await Review.countDocuments();
+    const job = await Job.findById(req.params.id);
+    if (!job) {
+      return next(new AppError('Job not found.', 404));
+    }
 
-    res.json({
+    // Cascade delete: remove applications and reviews for this job
+    await Application.deleteMany({ job: job._id });
+    await Review.deleteMany({ job: job._id });
+    await Job.findByIdAndDelete(req.params.id);
+
+    sendSuccess(res, 200, 'Job and related data deleted');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/v1/admin/analytics — Dashboard analytics
+// ─────────────────────────────────────────────────────────────
+exports.getAnalytics = async (req, res, next) => {
+  try {
+    // Run all count queries in parallel for performance
+    const [
       totalUsers,
       totalWorkers,
       totalHirers,
       totalJobs,
       openJobs,
-      totalReviews
+      closedJobs,
+      completedJobs,
+      totalApplications,
+      totalReviews,
+      recentUsers,
+      recentJobs,
+    ] = await Promise.all([
+      User.countDocuments(),
+      User.countDocuments({ role: 'worker' }),
+      User.countDocuments({ role: 'hirer' }),
+      Job.countDocuments(),
+      Job.countDocuments({ status: 'open' }),
+      Job.countDocuments({ status: 'closed' }),
+      Job.countDocuments({ status: 'completed' }),
+      Application.countDocuments(),
+      Review.countDocuments(),
+      User.find().sort({ createdAt: -1 }).limit(5).select('firstName lastName email role createdAt'),
+      Job.find().sort({ createdAt: -1 }).limit(5)
+        .select('title location budget status createdAt')
+        .populate('postedBy', 'firstName lastName'),
+    ]);
+
+    // Aggregation: applications by status
+    const applicationsByStatus = await Application.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]);
+
+    sendSuccess(res, 200, 'Analytics fetched', {
+      counts: {
+        totalUsers,
+        totalWorkers,
+        totalHirers,
+        totalJobs,
+        openJobs,
+        closedJobs,
+        completedJobs,
+        totalApplications,
+        totalReviews,
+      },
+      applicationsByStatus,
+      recentUsers,
+      recentJobs,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };

@@ -1,0 +1,21 @@
+/**
+ * Standardized API Response Helpers
+ * 
+ * Every API response from Shram Setu follows this format:
+ * { success: true/false, message: '...', data: {...}, pagination: {...} }
+ */
+
+const sendSuccess = (res, statusCode = 200, message = 'Success', data = null, pagination = null) => {
+  const response = { success: true, message };
+  if (data !== null) response.data = data;
+  if (pagination !== null) response.pagination = pagination;
+  return res.status(statusCode).json(response);
+};
+
+const sendError = (res, statusCode = 500, message = 'Internal Server Error', errors = null) => {
+  const response = { success: false, message };
+  if (errors !== null) response.errors = errors;
+  return res.status(statusCode).json(response);
+};
+
+module.exports = { sendSuccess, sendError };
