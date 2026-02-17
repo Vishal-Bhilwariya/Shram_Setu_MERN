@@ -1,0 +1,4 @@
+Connecting to MongoDB...
+🚀 Server running in development mode on port 5000
+MongoDB Connected
+^C

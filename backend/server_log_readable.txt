@@ -1,0 +1,16 @@
+🚀 Server running in development mode on port 5000
+node : MongoDB connection 
+error: querySrv ECONNREFUSED _mo
+ngodb._tcp.cluster.mongodb.net
+At line:1 char:1
++ node server.js > 
+server_log.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~
+    + CategoryInfo          : N 
+   otSpecified: (MongoDB conne  
+  ct...ter.mongodb.net:String   
+ ) [], RemoteException
+    + FullyQualifiedErrorId : N 
+   ativeCommandError
+ 

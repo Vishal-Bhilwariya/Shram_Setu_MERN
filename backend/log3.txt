@@ -1,0 +1,2 @@
+🚀 Server running in development mode on port 5000
+MongoDB connection error: querySrv ECONNREFUSED _mongodb._tcp.bharatyatra.9v7edjt.mongodb.net
